@@ -1,5 +1,5 @@
-import type { DataAdapter, Plugin, Stat, WorkspaceLeaf } from "obsidian";
-import { createEmptyDatabase, createInitialMockDatabase } from "./mock-data";
+import { normalizePath, type DataAdapter, type Plugin, type Stat, type WorkspaceLeaf } from "obsidian";
+import { createEmptyDatabase } from "./mock-data";
 import type { Locale } from "../services/i18n";
 import type { Area, Cycle, Label, Project, Task, TodoDatabase } from "./types";
 import type { LicensePayload, LicenseVerifyResult } from "../services/license";
@@ -461,6 +461,23 @@ export class TempoStore {
       }
     }
 
+    // The stored status is only a cache. Creation is gated on it, so it is re-derived from the
+    // key's local Ed25519 signature on every load: a hand-edited "valid" without a genuine key
+    // must not unlock anything. The online device check below may still downgrade it.
+    if (cleanData.licenseKey) {
+      try {
+        const local = await verifyLicenseCode(cleanData.licenseKey, "crisp-tempo", { online: false });
+        cleanData.licenseStatus = local.valid ? "valid" : "invalid";
+        if (local.payload) cleanData.licensePayload = local.payload;
+      } catch (err) {
+        console.debug("Crisp Tempo: local license check failed", err);
+        cleanData.licenseStatus = "invalid";
+      }
+    } else if (cleanData.licenseStatus === "valid") {
+      cleanData.licenseStatus = undefined;
+      cleanData.licensePayload = undefined;
+    }
+
     // If an existing license key is present, verify in the background asynchronously
     if (cleanData.licenseKey) {
       void verifyLicenseCode(cleanData.licenseKey, "crisp-tempo")
@@ -650,10 +667,17 @@ export class TempoStore {
     ).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
     const filename = `crisp-tempo-data-${stamp}.json`;
 
-    // Folder precedence: customFolder > stored exportFolder > vault root
-    const folder = (customFolder !== undefined ? customFolder : (this.data?.exportFolder || ""))
+    // Folder precedence: customFolder > stored exportFolder > vault root. The folder is a
+    // vault-relative path, so a ".." segment that would climb out of the vault is refused.
+    const rawFolder = (customFolder !== undefined ? customFolder : (this.data?.exportFolder || ""))
       .trim()
+      .replace(/\\/g, "/")
+      .replace(/\/{2,}/g, "/")
       .replace(/^\/+|\/+$/g, "");
+    if (rawFolder.split("/").some((part) => part === "..")) {
+      throw new Error(`导出目录不能包含 “..”：${rawFolder}`);
+    }
+    const folder = rawFolder ? normalizePath(rawFolder) : "";
 
     if (folder) {
       const parts = folder.split("/");
@@ -758,10 +782,6 @@ export class TempoStore {
     };
     this.notify();
     this.saveDebounced();
-  }
-
-  public resetToMock(): void {
-    this.resetToEmpty();
   }
 
   public async activateLicense(code: string): Promise<LicenseVerifyResult> {

@@ -88,8 +88,26 @@ class CrispTempoSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     const store = TempoStore.get(this.plugin);
+    // The store is normally loaded by the Tempo view. Opening these settings before the view
+    // left it empty, so language, destination and even a successful license activation were
+    // silently discarded. Load it first and redraw once it is ready.
+    if (store.status !== "ready" || !store.data) {
+      if (store.status !== "error") {
+        void store.load().then(
+          () => this.display(),
+          () => this.display(),
+        );
+      }
+      containerEl.createEl("p", {
+        text: store.status === "error"
+          ? t("loadErrorTitle", store.loadLocale ?? "zh")
+          : t("loading", store.loadLocale ?? "zh"),
+        cls: "setting-item-description",
+      });
+      return;
+    }
     const data = store.data;
-    const locale = data?.locale || "zh";
+    const locale = data.locale || "zh";
 
     const headerEl = containerEl.createDiv({ cls: "tempo-settings-tab-header" });
     headerEl.createEl("h2", { text: `Crisp Tempo (v${this.plugin.manifest.version})` });
@@ -119,9 +137,9 @@ class CrispTempoSettingTab extends PluginSettingTab {
     const statusSetting = new Setting(containerEl).setName(t("licenseStatus", locale));
 
     if (isValid && data?.licensePayload) {
-      const user = data.licensePayload.userName || "Crisp 用户";
+      const user = data.licensePayload.userName || t("defaultUserName", locale);
       const expiry = data.licensePayload.expiresAt
-        ? ` · 到期时间: ${String(data.licensePayload.expiresAt).split("T")[0]}`
+        ? ` · ${t("licenseExpires", locale)}: ${String(data.licensePayload.expiresAt).split("T")[0]}`
         : ` · ${t("licenseNeverExpires", locale)}`;
       statusSetting.setDesc(`✅ ${t("licenseActive", locale)}（${t("licenseUser", locale)}: ${user}${expiry}）`);
       statusSetting.addButton((btn) => {
@@ -167,9 +185,9 @@ class CrispTempoSettingTab extends PluginSettingTab {
             try {
               const res = await store.activateLicense(codeToVerify);
               if (res.valid && res.payload) {
-                new Notice(tf("licenseSuccess", locale, { user: res.payload.userName || "Crisp 用户" }));
+                new Notice(tf("licenseSuccess", locale, { user: res.payload.userName || t("defaultUserName", locale) }));
               } else {
-                new Notice(tf("licenseFailed", locale, { reason: res.reason || "未知原因" }));
+                new Notice(tf("licenseFailed", locale, { reason: res.reason || t("unknownReason", locale) }));
               }
             } catch (err: any) {
               new Notice(tf("licenseFailed", locale, { reason: err?.message || String(err) }));
@@ -245,16 +263,16 @@ class CrispTempoSettingTab extends PluginSettingTab {
 
     // 4. About Card & Author Info
     const aboutCard = containerEl.createDiv({ cls: "crisp-tempo-about" });
-    aboutCard.createDiv({ cls: "crisp-tempo-about__title", text: "关于 Crisp Tempo" });
+    aboutCard.createDiv({ cls: "crisp-tempo-about__title", text: t("aboutTempo", locale) });
     aboutCard.createDiv({
       cls: "crisp-tempo-about__description",
       text: "Tasks, in motion.",
     });
     const byline = aboutCard.createEl("p", { cls: "crisp-tempo-about__author" });
-    byline.createSpan({ text: "作者：" });
+    byline.createSpan({ text: t("authorLabel", locale) });
     const authorLink = byline.createEl("a", {
       cls: "crisp-tempo-about__author-link",
-      text: "小红书 letschips",
+      text: t("authorLink", locale),
       href: "https://xhslink.cn/m/3MwtKu4822b",
     });
     authorLink.target = "_blank";

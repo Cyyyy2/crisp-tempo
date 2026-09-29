@@ -29,6 +29,15 @@ export function normalizePath(p) { return p; }
 export function addIcon() {}
 export function requestUrl() { return Promise.reject(new Error("offline in test")); }
 export const Platform = { isMobile: false, isDesktop: true, isMobileApp: false };
+export class Menu {
+  constructor() { this.items = []; }
+  addItem(cb) {
+    const item = { title: "", setTitle(t) { this.title = t; return this; }, setIcon() { return this; },
+      onClick(fn) { this.fn = fn; return this; } };
+    cb(item); this.items.push(item); return this;
+  }
+  showAtMouseEvent() { window.__tempoMenu = this; }
+}
 `,
 );
 

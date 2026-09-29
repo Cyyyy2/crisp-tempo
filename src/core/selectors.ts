@@ -54,13 +54,15 @@ export function buildChildrenMap(tasks: Record<string, Task> | Task[]): Map<stri
 }
 
 /**
- * A task is actionable today when it was focused for today, already started, or is due.
+ * A task is actionable today when it was focused for today (or an earlier day and is still
+ * open), already started, or is due. An unfinished Today item carries over to the next day,
+ * as in Things 3; without that it silently dropped out of Today at midnight.
  * Shared by the Today list, the Today nav badge and the "today remaining" KPI so all three
  * always agree.
  */
 export function isScheduledForToday(task: Task, today = getTodayString()): boolean {
   return (
-    task.focusDate === today ||
+    (!!task.focusDate && task.focusDate <= today) ||
     (!!task.startDate && task.startDate <= today) ||
     (!!task.dueDate && task.dueDate <= today)
   );
@@ -118,13 +120,64 @@ export function getInboxTasks(tasks: Record<string, Task> | Task[]): Task[] {
  * behaves in Things 3. The two buckets are therefore not a partition of the task set.
  */
 export function getUpcomingTasks(tasks: Record<string, Task> | Task[], today = getTodayString()): Task[] {
-  return getTopLevelTasks(tasks).filter(
-    (t) =>
-      t.triage === "processed" &&
-      t.status !== "done" &&
-      t.status !== "canceled" &&
-      ((!!t.startDate && t.startDate > today) || (!!t.dueDate && t.dueDate > today))
-  );
+  return getTopLevelTasks(tasks)
+    .filter(
+      (t) =>
+        t.triage === "processed" &&
+        t.status !== "done" &&
+        t.status !== "canceled" &&
+        ((!!t.startDate && t.startDate > today) || (!!t.dueDate && t.dueDate > today))
+    )
+    .sort((a, b) => upcomingDate(a, today).localeCompare(upcomingDate(b, today)));
+}
+
+/** The nearest future date that put a task on the Upcoming list. */
+function upcomingDate(task: Task, today: string): string {
+  const dates = [task.startDate, task.dueDate].filter((d): d is string => !!d && d > today);
+  return dates.sort()[0] ?? "";
+}
+
+const STATUS_RANK: Record<Task["status"], number> = {
+  in_progress: 0,
+  todo: 1,
+  waiting: 2,
+  done: 3,
+  canceled: 4,
+};
+
+/**
+ * Project and cycle lists mix open and finished work, so open work comes first and the
+ * finished tail sinks to the bottom. The sort is stable, so creation order is kept within
+ * each status.
+ */
+export function sortByStatus(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
+}
+
+/**
+ * Share of finished work. Canceled tasks are out of scope, so they count neither as done
+ * nor as remaining; otherwise a single canceled task keeps a project below 100% forever.
+ */
+export function getProgress(tasks: Task[]): { done: number; total: number; pct: number } {
+  const inScope = tasks.filter((t) => t.status !== "canceled");
+  const done = inScope.filter((t) => t.status === "done").length;
+  const total = inScope.length;
+  return { done, total, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
+}
+
+export type CycleTimeStatus = "current" | "upcoming" | "previous";
+
+/**
+ * Where a cycle sits relative to today, derived from its dates. The stored `status` is set
+ * once at creation and never rolls over, so it cannot tell whether a cycle has ended.
+ */
+export function getCycleTimeStatus(
+  cycle: { startDate: string; endDate: string },
+  today = getTodayString(),
+): CycleTimeStatus {
+  if (cycle.endDate < today) return "previous";
+  if (cycle.startDate > today) return "upcoming";
+  return "current";
 }
 
 /**
@@ -164,12 +217,14 @@ export function getWaitingTasks(tasks: Record<string, Task> | Task[]): Task[] {
 }
 
 /**
- * Tasks for Completed log view.
+ * Tasks for the Completed log (Logbook): finished and canceled work, newest first. Canceled
+ * tasks used to be reachable only from their project, so they vanished from every list.
  */
 export function getCompletedTasks(tasks: Record<string, Task> | Task[]): Task[] {
+  const closedAt = (t: Task) => t.completedAt || t.canceledAt || t.updatedAt || 0;
   return getTopLevelTasks(tasks)
-    .filter((t) => t.status === "done")
-    .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+    .filter((t) => t.status === "done" || t.status === "canceled")
+    .sort((a, b) => closedAt(b) - closedAt(a));
 }
 
 /**
@@ -218,7 +273,7 @@ export function getNavCounts(tasks: Record<string, Task> | Task[], today = getTo
     (t) => t.status === "waiting"
   ).length;
 
-  const completed = topTasks.filter((t) => t.status === "done").length;
+  const completed = topTasks.filter((t) => t.status === "done" || t.status === "canceled").length;
 
   return { inbox, today: todayCount, upcoming, anytime, someday, waiting, completed };
 }

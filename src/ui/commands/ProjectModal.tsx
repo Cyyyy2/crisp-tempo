@@ -1,6 +1,6 @@
 import type { JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
-import { t, type Locale } from "../../services/i18n";
+import { t, tf, type Locale } from "../../services/i18n";
 import { installDialogFocus } from "../components/dialog-focus";
 import { CloseIcon, FolderPlusIcon } from "../icons/Icons";
 
@@ -19,6 +19,11 @@ const PRESET_COLORS = [
 export interface ProjectModalProps {
   isOpen: boolean;
   locale: Locale;
+  /** Present when editing an existing project; the modal then saves instead of creating. */
+  initial?: { title: string; color?: string; description?: string };
+  /** Tasks that will be unlinked if the project is deleted. */
+  linkedTaskCount?: number;
+  onDeleteProject?: () => void;
   onClose: () => void;
   onCreateProject: (project: {
     title: string;
@@ -30,12 +35,17 @@ export interface ProjectModalProps {
 export function ProjectModal({
   isOpen,
   locale,
+  initial,
+  linkedTaskCount = 0,
+  onDeleteProject,
   onClose,
   onCreateProject,
 }: ProjectModalProps): JSX.Element | null {
-  const [title, setTitle] = useState("");
-  const [color, setColor] = useState(PRESET_COLORS[0]);
-  const [description, setDescription] = useState("");
+  const isEdit = !!initial;
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [color, setColor] = useState(initial?.color || PRESET_COLORS[0]);
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -93,7 +103,9 @@ export function ProjectModal({
         <div className="tempo-window-header">
           <div className="tempo-window-title-left">
             <FolderPlusIcon size={16} />
-            <span className="tempo-window-title">{t("newProject", locale)}</span>
+            <span className="tempo-window-title">
+              {t(isEdit ? "editProject" : "newProject", locale)}
+            </span>
           </div>
           <button
             type="button"
@@ -153,7 +165,26 @@ export function ProjectModal({
 
         {/* Footer */}
         <div className="tempo-window-footer">
-          <div className="tempo-window-hint">{t("shortcutHint", locale)}</div>
+          {isEdit && onDeleteProject ? (
+            <button
+              type="button"
+              className="tempo-action-btn tempo-btn-danger-text"
+              onClick={() => {
+                if (!confirmDelete) {
+                  setConfirmDelete(true);
+                  return;
+                }
+                onDeleteProject();
+                onClose();
+              }}
+            >
+              {confirmDelete
+                ? tf("confirmDeleteProject", locale, { n: linkedTaskCount })
+                : t("deleteProject", locale)}
+            </button>
+          ) : (
+            <div className="tempo-window-hint">{t("shortcutHint", locale)}</div>
+          )}
           <div className="tempo-window-actions">
             <button
               type="button"
@@ -168,7 +199,7 @@ export function ProjectModal({
               onClick={handleSubmit}
               disabled={!title.trim()}
             >
-              {t("createProject", locale)}
+              {t(isEdit ? "saveBtn" : "createProject", locale)}
             </button>
           </div>
         </div>

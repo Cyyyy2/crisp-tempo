@@ -8,12 +8,14 @@ import {
   getCompletedTasks,
   getInboxTasks,
   getKpiStats,
+  getCycleTimeStatus,
   getNavCounts,
   getSomedayTasks,
   getTodayTasks,
   getUpcomingTasks,
   getVisualOrderTasks,
   getWaitingTasks,
+  sortByStatus,
 } from "../core/selectors";
 import { TempoStore } from "../core/store";
 import type { Cycle, Project, Task, TaskPriority, TaskStatus, TodoDatabase } from "../core/types";
@@ -39,6 +41,11 @@ interface AppProps {
 export function App({ plugin, leaf }: AppProps): JSX.Element {
   const store = TempoStore.get(plugin);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // Crisp Tempo is a paid plugin: creating tasks, subtasks and projects needs a valid
+  // license. Everything that touches existing data (view, edit, complete, delete, export)
+  // stays available, so an expired license never holds the user's tasks hostage.
+  const hasLicense = () => store.data?.licenseStatus === "valid";
 
   // Subscribe to central store. A single snapshot shape keeps the initial state and the
   // subscription callback from drifting apart.
@@ -68,14 +75,16 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
   // Listen for Quick Add command
   useEffect(() => {
     const unsubQuickAdd = store.onQuickAdd(() => {
-      setIsTaskCreateOpen(true);
+      if (hasLicense()) setIsTaskCreateOpen(true);
+      else promptForLicense();
     }, leaf);
     return unsubQuickAdd;
   }, [store, leaf]);
 
-  // UI Navigation & View state. Default to task-1 so inspector is populated.
+  // UI Navigation & View state. Nothing is selected on open: on a narrow pane the inspector
+  // covers the whole view, so an automatic selection would hide the task list at launch.
   const [activeNav, setActiveNav] = useState<string>("today");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>("task-1");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isTaskCreateOpen, setIsTaskCreateOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
@@ -83,6 +92,24 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [confirmSalvage, setConfirmSalvage] = useState(false);
+  const [licensePrompt, setLicensePrompt] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingCycleId, setEditingCycleId] = useState<string | null>(null);
+
+  /** Explains why creation is locked and opens the activation form. */
+  function promptForLicense(): void {
+    new Notice(t("licenseRequiredNotice", store.data?.locale ?? "zh"));
+    setLicensePrompt(true);
+    setIsSettingsOpen(true);
+  }
+  const openQuickAdd = () => {
+    if (hasLicense()) setIsTaskCreateOpen(true);
+    else promptForLicense();
+  };
+  const openNewProject = () => {
+    if (hasLicense()) setIsProjectModalOpen(true);
+    else promptForLicense();
+  };
   const [isRecovering, setIsRecovering] = useState(false);
 
   // Moving to another view drops the previous selection. Without this the inspector keeps
@@ -138,6 +165,19 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
     };
   }, []);
 
+  // A save normally lands within the 300 ms debounce. Showing the "saving" strip for every
+  // edit inserted and removed a row above the KPI cards, so the whole board jumped on each
+  // click. The strip now appears only when a save is genuinely slow; errors show at once.
+  const [slowSave, setSlowSave] = useState(false);
+  useEffect(() => {
+    if (storeState.saveStatus !== "saving") {
+      setSlowSave(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlowSave(true), 1500);
+    return () => clearTimeout(timer);
+  }, [storeState.saveStatus]);
+
   // Derived view state. Memoised on the database and the navigation target, so switching
   // views does not rescan the task set and the keydown effect below only re-subscribes when
   // the visible list actually changes.
@@ -157,10 +197,10 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
     else if (activeNav === "completed") visibleTasks = getCompletedTasks(allTasks);
     else if (activeNav.startsWith("proj:")) {
       const projectId = activeNav.slice(5);
-      visibleTasks = taskList.filter((t) => !t.parentTaskId && t.projectId === projectId);
+      visibleTasks = sortByStatus(taskList.filter((t) => !t.parentTaskId && t.projectId === projectId));
     } else if (activeNav.startsWith("cycle:")) {
       const cycleId = activeNav.slice(6);
-      visibleTasks = taskList.filter((t) => !t.parentTaskId && t.cycleId === cycleId);
+      visibleTasks = sortByStatus(taskList.filter((t) => !t.parentTaskId && t.cycleId === cycleId));
     }
 
     return {
@@ -171,6 +211,19 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
       kpi: getKpiStats(allTasks, today),
     };
   }, [database, activeNav, today]);
+
+  // Keyboard shortcuts. The window listener is a single fixed hook installed before the
+  // loading/error early returns, so the hook order never changes between renders; each ready
+  // render swaps in a handler that sees the current state, and the other states disarm it.
+  const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyHandlerRef.current = () => {};
+  useEffect(() => {
+    const ownerWindow = rootRef.current?.ownerDocument?.defaultView;
+    if (!ownerWindow) return;
+    const listener = (e: KeyboardEvent) => keyHandlerRef.current(e);
+    ownerWindow.addEventListener("keydown", listener);
+    return () => ownerWindow.removeEventListener("keydown", listener);
+  }, []);
 
   const selectedTaskSubtasks = useMemo(
     () => (selectedTaskId ? derived?.childrenMap.get(selectedTaskId) ?? [] : []),
@@ -283,13 +336,14 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
   const { taskList, visibleTasks, childrenMap, counts, kpi } = derived;
   const selectedTask = selectedTaskId ? allTasks[selectedTaskId] ?? null : null;
 
-  // Toggle complete / active status
+  // Toggle complete / active status. A finished or canceled task reopens as todo; clicking
+  // a canceled task's checkbox used to mark it done, which it never was.
   const handleToggleStatus = (taskId: string) => {
     store.updateDatabase((prev) => {
       const t = prev.tasks[taskId];
       if (!t) return prev;
-      const isDone = t.status === "done";
-      const nextStatus: TaskStatus = isDone ? "todo" : "done";
+      const reopen = t.status === "done" || t.status === "canceled";
+      const nextStatus: TaskStatus = reopen ? "todo" : "done";
       return {
         ...prev,
         tasks: {
@@ -297,7 +351,8 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
           [taskId]: {
             ...t,
             status: nextStatus,
-            completedAt: isDone ? undefined : Date.now(),
+            completedAt: reopen ? undefined : Date.now(),
+            canceledAt: undefined,
             updatedAt: Date.now(),
           },
         },
@@ -327,6 +382,7 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
 
   // Delete task and its subtasks
   const handleDeleteTask = (taskId: string) => {
+    const isSelected = taskId === selectedTaskId;
     store.updateDatabase((prev) => {
       const nextTasks = { ...prev.tasks };
       delete nextTasks[taskId];
@@ -340,7 +396,7 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
         tasks: nextTasks,
       };
     });
-    setSelectedTaskId(null);
+    if (isSelected) setSelectedTaskId(null);
   };
 
   // Add task from TaskCreateModal
@@ -355,6 +411,10 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
     projectId?: string;
     cycleId?: string;
   }) => {
+    if (!hasLicense()) {
+      promptForLicense();
+      return;
+    }
     const newId = `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const newTask: Task = {
       id: newId,
@@ -388,6 +448,10 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
   const handleAddSubtask = (title: string, explicitParentId?: string) => {
     const parentId = explicitParentId || selectedTaskId;
     if (!parentId) return;
+    if (!hasLicense()) {
+      promptForLicense();
+      return;
+    }
 
     const subId = `task-sub-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const newSubtask: Task = {
@@ -418,6 +482,10 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
     color: string;
     description?: string;
   }) => {
+    if (!hasLicense()) {
+      promptForLicense();
+      return;
+    }
     const newProjId = `proj-${Date.now()}`;
     const newProj: Project = {
       id: newProjId,
@@ -477,9 +545,75 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
     setActiveNav(`cycle:${newCycleId}`);
   };
 
+  // Editing and deleting existing projects and cycles is not gated: it only changes data
+  // the user already has. Deleting keeps the tasks and just unlinks them; ⌘Z restores both.
+  const handleUpdateProject = (
+    projectId: string,
+    params: { title: string; color: string; description?: string },
+  ) => {
+    store.updateDatabase((prev) => {
+      const project = prev.projects[projectId];
+      if (!project) return prev;
+      return {
+        ...prev,
+        projects: {
+          ...prev.projects,
+          [projectId]: { ...project, ...params, updatedAt: Date.now() },
+        },
+      };
+    });
+  };
+
+  const handleDeleteProject = (projectId: string) => {
+    const project = store.data?.database.projects[projectId];
+    if (!project) return;
+    store.updateDatabase((prev) => {
+      const nextProjects = { ...prev.projects };
+      delete nextProjects[projectId];
+      const nextTasks = { ...prev.tasks };
+      for (const [id, task] of Object.entries(nextTasks)) {
+        if (task.projectId === projectId) {
+          nextTasks[id] = { ...task, projectId: undefined, updatedAt: Date.now() };
+        }
+      }
+      return { ...prev, projects: nextProjects, tasks: nextTasks };
+    });
+    if (activeNav === `proj:${projectId}`) setActiveNav("today");
+    new Notice(tf("projectDeleted", locale, { title: project.title }));
+  };
+
+  const handleUpdateCycle = (
+    cycleId: string,
+    params: { title: string; startDate: string; endDate: string; status: "current" | "upcoming" },
+  ) => {
+    store.updateDatabase((prev) => {
+      const cycle = prev.cycles[cycleId];
+      if (!cycle) return prev;
+      return { ...prev, cycles: { ...prev.cycles, [cycleId]: { ...cycle, ...params } } };
+    });
+  };
+
+  const handleDeleteCycle = (cycleId: string) => {
+    const cycle = store.data?.database.cycles[cycleId];
+    if (!cycle) return;
+    store.updateDatabase((prev) => {
+      const nextCycles = { ...prev.cycles };
+      delete nextCycles[cycleId];
+      const nextTasks = { ...prev.tasks };
+      for (const [id, task] of Object.entries(nextTasks)) {
+        if (task.cycleId === cycleId) {
+          nextTasks[id] = { ...task, cycleId: undefined, updatedAt: Date.now() };
+        }
+      }
+      return { ...prev, cycles: nextCycles, tasks: nextTasks };
+    });
+    if (activeNav === `cycle:${cycleId}`) setActiveNav("today");
+    new Notice(tf("cycleDeleted", locale, { title: cycle.title }));
+  };
+
   // Reset data to initial mock (safe with undo snapshot)
   const handleResetData = async (): Promise<boolean> => {
-    store.resetToMock();
+    store.resetToEmpty();
     await store.flush();
     return store.saveStatus === "saved";
   };
@@ -577,113 +711,97 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
     });
   };
 
-  // Keyboard navigation & quick add handler with strict scope guard
-  useEffect(() => {
+  // Keyboard navigation & quick add, with a strict scope guard.
+  keyHandlerRef.current = (e: KeyboardEvent) => {
     const rootEl = rootRef.current;
     const ownerDocument = rootEl?.ownerDocument;
-    const ownerWindow = ownerDocument?.defaultView;
-    if (!rootEl || !ownerDocument || !ownerWindow) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.isComposing) return;
-      // Modals own the keyboard while open.
-      if (
-        isTaskCreateOpen ||
-        isProjectModalOpen ||
-        isCycleModalOpen ||
-        isSettingsOpen ||
-        isMobileNavOpen
-      ) {
-        return;
-      }
+    if (!rootEl || !ownerDocument) return;
+    if (e.defaultPrevented || e.isComposing) return;
+    // Modals own the keyboard while open.
+    if (
+      isTaskCreateOpen ||
+      isProjectModalOpen ||
+      isCycleModalOpen ||
+      isSettingsOpen ||
+      isMobileNavOpen ||
+      editingProjectId ||
+      editingCycleId
+    ) {
+      return;
+    }
 
-      // 2. Check active element
-      const activeEl = ownerDocument.activeElement;
-      const isInput =
-        ["INPUT", "TEXTAREA", "SELECT"].includes(activeEl?.tagName ?? "") ||
-        activeEl?.getAttribute("contenteditable") === "true";
+    // 2. Check active element
+    const activeEl = ownerDocument.activeElement;
+    const isInput =
+      ["INPUT", "TEXTAREA", "SELECT"].includes(activeEl?.tagName ?? "") ||
+      activeEl?.getAttribute("contenteditable") === "true";
 
-      // 3. Container and focus containment check
-      // Only the active Tempo leaf receives shortcuts, including in popout windows.
-      if (leaf && plugin.app.workspace.activeLeaf !== leaf) return;
-      if (!rootEl.isConnected || rootEl.getClientRects().length === 0 ||
-          rootEl.offsetWidth === 0 || rootEl.offsetHeight === 0) return;
+    // 3. Container and focus containment check
+    // Only the active Tempo leaf receives shortcuts, including in popout windows.
+    if (leaf && plugin.app.workspace.activeLeaf !== leaf) return;
+    if (!rootEl.isConnected || rootEl.getClientRects().length === 0 ||
+        rootEl.offsetWidth === 0 || rootEl.offsetHeight === 0) return;
 
-      // Focus in another pane belongs to that pane.
-      if (activeEl && activeEl !== ownerDocument.body && !rootEl.contains(activeEl)) {
-        return;
-      }
+    // Focus in another pane belongs to that pane.
+    if (activeEl && activeEl !== ownerDocument.body && !rootEl.contains(activeEl)) {
+      return;
+    }
 
-      // Quick Add (Cmd+Shift+Space or 'c' when not typing in any input)
-      if (
-        (e.metaKey && e.shiftKey && e.code === "Space") ||
-        (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === "c")
-      ) {
+    // Quick Add (Cmd+Shift+Space or 'c' when not typing in any input)
+    if (
+      (e.metaKey && e.shiftKey && e.code === "Space") ||
+      (!isInput && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === "c")
+    ) {
+      e.preventDefault();
+      openQuickAdd();
+      return;
+    }
+
+    // Undo (Cmd+Z or Ctrl+Z)
+    if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey && !isInput) {
+      e.preventDefault();
+      handleUndo();
+      return;
+    }
+
+    // If typing in input / select, do not intercept remaining keys
+    if (isInput) return;
+
+    // Esc: deselect
+    if (e.key === "Escape") {
+      if (selectedTaskId) {
         e.preventDefault();
-        setIsTaskCreateOpen(true);
-        return;
+        setSelectedTaskId(null);
       }
+      return;
+    }
 
-      // Undo (Cmd+Z or Ctrl+Z)
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey && !isInput) {
-        e.preventDefault();
-        handleUndo();
-        return;
+    // Arrow navigation: ordered strictly according to on-screen visual presentation!
+    if (!e.metaKey && !e.ctrlKey && !e.altKey &&
+        (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      const ordered = getVisualOrderTasks(visibleTasks, activeNav);
+      if (ordered.length === 0) return;
+
+      const currentIndex = ordered.findIndex((t) => t.id === selectedTaskId);
+      if (e.key === "ArrowDown") {
+        const nextIndex = currentIndex < ordered.length - 1 ? currentIndex + 1 : 0;
+        if (ordered[nextIndex]) setSelectedTaskId(ordered[nextIndex].id);
+      } else {
+        const prevIndex = currentIndex > 0 ? currentIndex - 1 : ordered.length - 1;
+        if (ordered[prevIndex]) setSelectedTaskId(ordered[prevIndex].id);
       }
+      return;
+    }
 
-      // If typing in input / select, do not intercept remaining keys
-      if (isInput) return;
-
-      // Esc: deselect
-      if (e.key === "Escape") {
-        if (selectedTaskId) {
-          e.preventDefault();
-          setSelectedTaskId(null);
-        }
-        return;
-      }
-
-      // Arrow navigation: ordered strictly according to on-screen visual presentation!
-      if (!e.metaKey && !e.ctrlKey && !e.altKey &&
-          (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-        e.preventDefault();
-        const ordered = getVisualOrderTasks(visibleTasks, activeNav);
-        if (ordered.length === 0) return;
-
-        const currentIndex = ordered.findIndex((t) => t.id === selectedTaskId);
-        if (e.key === "ArrowDown") {
-          const nextIndex = currentIndex < ordered.length - 1 ? currentIndex + 1 : 0;
-          if (ordered[nextIndex]) setSelectedTaskId(ordered[nextIndex].id);
-        } else {
-          const prevIndex = currentIndex > 0 ? currentIndex - 1 : ordered.length - 1;
-          if (ordered[prevIndex]) setSelectedTaskId(ordered[prevIndex].id);
-        }
-        return;
-      }
-
-      // 'x' toggles complete on selected task
-      if (e.key === "x" && selectedTaskId &&
-          !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-        e.preventDefault();
-        handleToggleStatus(selectedTaskId);
-        return;
-      }
-    };
-
-    ownerWindow.addEventListener("keydown", handleKeyDown);
-    return () => ownerWindow.removeEventListener("keydown", handleKeyDown);
-  }, [
-    isTaskCreateOpen,
-    isProjectModalOpen,
-    isCycleModalOpen,
-    isSettingsOpen,
-    isMobileNavOpen,
-    visibleTasks,
-    activeNav,
-    selectedTaskId,
-    store,
-    leaf,
-    plugin,
-  ]);
+    // 'x' toggles complete on selected task
+    if (e.key === "x" && selectedTaskId &&
+        !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      handleToggleStatus(selectedTaskId);
+      return;
+    }
+  };
 
   return (
     <div className={`tempo-root ${selectedTask ? "has-selected-task" : ""}`} ref={rootRef}>
@@ -698,13 +816,18 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
           cycles={db.cycles}
           onSelectNav={(nav) => setActiveNav(nav)}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          isLicensed={storeState.data.licenseStatus === "valid"}
+          onOpenLicense={() => {
+            setLicensePrompt(true);
+            setIsSettingsOpen(true);
+          }}
           onUndo={handleUndo}
-          onOpenQuickAdd={() => setIsTaskCreateOpen(true)}
+          onOpenQuickAdd={openQuickAdd}
           onOpenProjects={() => setIsMobileNavOpen(true)}
           onMoveTaskToBucket={handleMoveTaskToBucket}
         />
 
-        {(storeState.saveStatus === "saving" || storeState.saveStatus === "error") && (
+        {((storeState.saveStatus === "saving" && slowSave) || storeState.saveStatus === "error") && (
           <div
             className={`tempo-save-feedback ${storeState.saveStatus === "error" ? "is-error" : ""}`}
             role={storeState.saveStatus === "error" ? "alert" : "status"}
@@ -747,9 +870,12 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
             counts={counts}
             projects={db.projects}
             cycles={db.cycles}
-            onOpenQuickAdd={() => setIsTaskCreateOpen(true)}
-            onOpenNewProject={() => setIsProjectModalOpen(true)}
+            onOpenQuickAdd={openQuickAdd}
+            onOpenNewProject={openNewProject}
+            onEditProject={(id) => setEditingProjectId(id)}
+            onEditCycle={(id) => setEditingCycleId(id)}
             onOpenNewCycle={() => setIsCycleModalOpen(true)}
+            today={today}
             onMoveTaskToBucket={handleMoveTaskToBucket}
             onMoveTaskToProject={handleMoveTaskToProject}
           />
@@ -765,7 +891,7 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
               selectedTaskId={selectedTaskId}
               onSelectTask={(id) => setSelectedTaskId(id)}
               onToggleStatus={handleToggleStatus}
-              onOpenQuickAdd={() => setIsTaskCreateOpen(true)}
+              onOpenQuickAdd={openQuickAdd}
             />
           ) : (
             <GenericListView
@@ -809,8 +935,15 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
               selectedTaskId={selectedTaskId}
               onSelectTask={(id) => setSelectedTaskId(id)}
               onToggleStatus={handleToggleStatus}
-              onOpenQuickAdd={() => setIsTaskCreateOpen(true)}
+              onOpenQuickAdd={openQuickAdd}
               onBackToToday={() => setActiveNav("today")}
+              onEdit={
+                activeNav.startsWith("proj:") && db.projects[activeNav.slice(5)]
+                  ? () => setEditingProjectId(activeNav.slice(5))
+                  : activeNav.startsWith("cycle:") && db.cycles[activeNav.slice(6)]
+                  ? () => setEditingCycleId(activeNav.slice(6))
+                  : undefined
+              }
             />
           )}
 
@@ -827,6 +960,9 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
               onDeleteTask={() => handleDeleteTask(selectedTask.id)}
               onAddSubtask={handleAddSubtask}
               onToggleSubtask={handleToggleStatus}
+              onDeleteSubtask={handleDeleteTask}
+              canAddSubtask={storeState.data.licenseStatus === "valid"}
+              onRequestLicense={promptForLicense}
             />
           )}
         </div>
@@ -854,13 +990,39 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
           />
         )}
 
+        {editingProjectId && db.projects[editingProjectId] && (
+          <ProjectModal
+            key={`edit-${editingProjectId}`}
+            isOpen={true}
+            locale={locale}
+            initial={db.projects[editingProjectId]}
+            linkedTaskCount={taskList.filter((task) => task.projectId === editingProjectId).length}
+            onClose={() => setEditingProjectId(null)}
+            onCreateProject={(params) => handleUpdateProject(editingProjectId, params)}
+            onDeleteProject={() => handleDeleteProject(editingProjectId)}
+          />
+        )}
+
+        {editingCycleId && db.cycles[editingCycleId] && (
+          <CycleModal
+            key={`edit-${editingCycleId}`}
+            isOpen={true}
+            locale={locale}
+            initial={db.cycles[editingCycleId]}
+            linkedTaskCount={taskList.filter((task) => task.cycleId === editingCycleId).length}
+            onClose={() => setEditingCycleId(null)}
+            onCreateCycle={(params) => handleUpdateCycle(editingCycleId, params)}
+            onDeleteCycle={() => handleDeleteCycle(editingCycleId)}
+          />
+        )}
+
         {isCycleModalOpen && (
           <CycleModal
             isOpen={true}
             locale={locale}
             nextCycleNumber={Object.keys(db.cycles).length + 1}
             currentCycleEnd={Object.values(db.cycles)
-              .filter((cycle) => cycle.status === "current")
+              .filter((cycle) => getCycleTimeStatus(cycle, today) !== "previous")
               .reduce((latest, cycle) => cycle.endDate > latest ? cycle.endDate : latest, "")}
             onClose={() => setIsCycleModalOpen(false)}
             onCreateCycle={handleCreateCycle}
@@ -876,7 +1038,11 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
             taskCount={taskList.length}
             projectCount={Object.keys(db.projects).length}
             cycleCount={Object.keys(db.cycles).length}
-            onClose={() => setIsSettingsOpen(false)}
+            licenseRequired={licensePrompt}
+            onClose={() => {
+              setIsSettingsOpen(false);
+              setLicensePrompt(false);
+            }}
             onChangeLocale={handleChangeLocale}
             onChangeDefaultDest={handleChangeDefaultDest}
             onChangeExportFolder={(folder) => store.setExportFolder(folder)}
@@ -906,7 +1072,7 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
             }}
             onOpenNewProject={() => {
               setIsMobileNavOpen(false);
-              setIsProjectModalOpen(true);
+              openNewProject();
             }}
             onOpenNewCycle={() => {
               setIsMobileNavOpen(false);

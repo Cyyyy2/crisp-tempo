@@ -17,6 +17,8 @@ interface HeaderProps {
   onUndo: () => void;
   onOpenQuickAdd: () => void;
   onOpenProjects?: () => void;
+  isLicensed?: boolean;
+  onOpenLicense?: () => void;
   onMoveTaskToBucket?: (taskId: string, bucket: string) => void;
 }
 
@@ -32,6 +34,8 @@ export function Header({
   onUndo,
   onOpenQuickAdd,
   onOpenProjects,
+  isLicensed = true,
+  onOpenLicense,
   onMoveTaskToBucket,
 }: HeaderProps): JSX.Element {
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -62,8 +66,13 @@ export function Header({
 
   // If currently viewing a project, include active project pill
   if (activeProject) {
+    // Same scope as the project list and the cycle pill: open top-level tasks only.
     const projTasks = Object.values(tasks).filter(
-      (t) => t.projectId === activeProject.id && t.status !== "done"
+      (t) =>
+        t.projectId === activeProject.id &&
+        !t.parentTaskId &&
+        t.status !== "done" &&
+        t.status !== "canceled"
     );
     navPills.push({
       key: `proj:${activeProject.id}`,
@@ -76,7 +85,11 @@ export function Header({
   // If currently viewing a cycle, include active cycle pill with its own task count.
   if (activeCycle) {
     const cycleTasks = Object.values(tasks).filter(
-      (t) => t.cycleId === activeCycle.id && t.status !== "done" && t.status !== "canceled"
+      (t) =>
+        t.cycleId === activeCycle.id &&
+        !t.parentTaskId &&
+        t.status !== "done" &&
+        t.status !== "canceled"
     );
     navPills.push({
       key: `cycle:${activeCycle.id}`,
@@ -102,6 +115,16 @@ export function Header({
 
         {/* Global Action Tools */}
         <div className="tempo-header-actions">
+          {!isLicensed && onOpenLicense && (
+            <button
+              type="button"
+              className="tempo-license-chip"
+              onClick={onOpenLicense}
+              title={t("licenseRequiredNotice", locale)}
+            >
+              {t("licenseChip", locale)}
+            </button>
+          )}
           {/* Settings Button */}
           <button
             type="button"

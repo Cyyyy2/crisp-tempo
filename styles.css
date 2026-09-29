@@ -1172,6 +1172,49 @@ body.is-translucent.theme-dark:not(.is-popout-window):not(.is-popout-modal) .tem
   flex: 1;
 }
 
+/* Subtask checkbox and delete control are real buttons for keyboard access; strip the
+   host button chrome so they keep the row's compact look. */
+.tempo-subtask-item .tempo-status-btn,
+.tempo-subtask-delete-btn {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.tempo-subtask-item .tempo-status-btn {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+.tempo-subtask-delete-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+}
+.tempo-subtask-item:hover .tempo-subtask-delete-btn,
+.tempo-subtask-delete-btn:focus-visible {
+  opacity: 1;
+}
+.tempo-subtask-delete-btn:hover {
+  color: var(--text-error, #d34b4b);
+  background-color: var(--background-modifier-hover);
+}
+.tempo-subtask-item .tempo-status-btn:focus-visible,
+.tempo-subtask-delete-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+@media (hover: none) {
+  .tempo-subtask-delete-btn { opacity: 1; }
+}
+
 .tempo-subtask-title.is-done {
   text-decoration: line-through;
   color: var(--text-faint);
@@ -2239,4 +2282,61 @@ body.is-translucent.theme-dark:not(.is-popout-window):not(.is-popout-modal) .tem
 
 .crisp-tempo-about__author-link:hover {
   text-decoration: underline;
+}
+
+/* Card header: secondary "Edit" action beside "New task" on project and cycle views. */
+.tempo-card-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.tempo-card-header-btn.is-secondary {
+  background-color: transparent;
+  border-color: var(--tempo-ui-border);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+.tempo-card-header-btn.is-secondary:hover {
+  opacity: 1;
+  color: var(--text-normal);
+  background-color: var(--background-modifier-hover);
+}
+
+/* License gate: a quiet header chip and a locked subtask field. */
+.tempo-license-chip {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--text-warning, #d99a2b);
+  color: var(--text-warning, #d99a2b);
+  font-size: 11.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tempo-license-chip:hover {
+  background-color: var(--background-modifier-hover);
+}
+.tempo-license-chip:focus-visible,
+.tempo-subtask-locked-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+.tempo-subtask-locked-btn {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 2px;
+  border-bottom: 1px dashed var(--tempo-ui-border);
+  color: var(--text-faint);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tempo-subtask-locked-btn:hover {
+  color: var(--text-muted);
 }

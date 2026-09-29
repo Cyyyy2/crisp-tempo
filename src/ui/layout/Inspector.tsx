@@ -17,6 +17,10 @@ interface InspectorProps {
   onDeleteTask: () => void;
   onAddSubtask: (title: string, parentTaskId?: string) => void;
   onToggleSubtask: (subtaskId: string) => void;
+  onDeleteSubtask: (subtaskId: string) => void;
+  /** Creating subtasks needs a license; editing existing ones does not. */
+  canAddSubtask?: boolean;
+  onRequestLicense?: () => void;
 }
 
 export function Inspector({
@@ -30,6 +34,9 @@ export function Inspector({
   onDeleteTask,
   onAddSubtask,
   onToggleSubtask,
+  onDeleteSubtask,
+  canAddSubtask = true,
+  onRequestLicense,
 }: InspectorProps): JSX.Element {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [titleDraft, setTitleDraft] = useState(task.title);
@@ -87,7 +94,8 @@ export function Inspector({
           type="button"
           className="tempo-action-btn"
           onClick={onClose}
-          title="Close (Esc)"
+          title={`${t("closeBtn", locale)} (Esc)`}
+          aria-label={t("closeBtn", locale)}
           style={{ padding: 6, borderRadius: 6 }}
         >
           <CloseIcon size={14} />
@@ -127,13 +135,14 @@ export function Inspector({
           <select
             className="tempo-property-select"
             value={task.status}
-            onChange={(e) =>
+            onChange={(e) => {
+              const status = (e.target as HTMLSelectElement).value as TaskStatus;
               onUpdateTask({
-                status: (e.target as HTMLSelectElement).value as TaskStatus,
-                completedAt:
-                  (e.target as HTMLSelectElement).value === "done" ? Date.now() : undefined,
-              })
-            }
+                status,
+                completedAt: status === "done" ? Date.now() : undefined,
+                canceledAt: status === "canceled" ? Date.now() : undefined,
+              });
+            }}
           >
             <option value="todo">{t("statusTodo", locale)}</option>
             <option value="in_progress">{t("statusInProgress", locale)}</option>
@@ -175,20 +184,25 @@ export function Inspector({
             ))}
           </select>
 
-          {/* When */}
+          {/* When. An untriaged task shows as Inbox; showing it as Anytime made picking
+              Anytime a no-op, because the select value did not change. */}
           <span className="tempo-property-label">{t("when", locale)}</span>
           <select
             className="tempo-property-select"
             value={
-              task.focusDate === today
-                ? "today"
+              task.triage === "inbox"
+                ? "inbox"
                 : task.availability === "someday"
                 ? "someday"
+                : task.focusDate && task.focusDate <= today
+                ? "today"
                 : "anytime"
             }
             onChange={(e) => {
               const val = (e.target as HTMLSelectElement).value;
-              if (val === "today") {
+              if (val === "inbox") {
+                onUpdateTask({ focusDate: undefined, triage: "inbox" });
+              } else if (val === "today") {
                 onUpdateTask({ focusDate: today, availability: "anytime", triage: "processed" });
               } else if (val === "someday") {
                 onUpdateTask({ focusDate: undefined, availability: "someday", triage: "processed" });
@@ -197,6 +211,7 @@ export function Inspector({
               }
             }}
           >
+            <option value="inbox">{t("inbox", locale)}</option>
             <option value="today">{t("whenToday", locale)}</option>
             <option value="anytime">{t("whenAnytime", locale)}</option>
             <option value="someday">{t("whenSomeday", locale)}</option>
@@ -260,32 +275,50 @@ export function Inspector({
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {subtasks.map((st) => (
               <div key={st.id} className="tempo-subtask-item">
-                <div
+                <button
+                  type="button"
                   className="tempo-status-btn"
                   onClick={() => onToggleSubtask(st.id)}
+                  aria-label={`${t("status", locale)}: ${st.title}`}
+                  aria-pressed={st.status === "done"}
                   style={{ width: 14, height: 14 }}
                 >
                   <StatusIcon status={st.status} size={13} />
-                </div>
+                </button>
                 <span
                   className={`tempo-subtask-title ${st.status === "done" ? "is-done" : ""}`}
                 >
                   {st.title}
                 </span>
+                <button
+                  type="button"
+                  className="tempo-subtask-delete-btn"
+                  onClick={() => onDeleteSubtask(st.id)}
+                  title={t("deleteSubtask", locale)}
+                  aria-label={`${t("deleteSubtask", locale)}: ${st.title}`}
+                >
+                  <CloseIcon size={11} />
+                </button>
               </div>
             ))}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
             <PlusIcon size={12} style={{ color: "var(--text-faint)" }} />
-            <input
-              type="text"
-              className="tempo-add-subtask-input"
-              placeholder={t("addSubtaskPlaceholder", locale)}
-              value={newSubtaskTitle}
-              onInput={(e) => setNewSubtaskTitle((e.target as HTMLInputElement).value)}
-              onKeyDown={handleSubtaskKeyDown}
-            />
+            {canAddSubtask ? (
+              <input
+                type="text"
+                className="tempo-add-subtask-input"
+                placeholder={t("addSubtaskPlaceholder", locale)}
+                value={newSubtaskTitle}
+                onInput={(e) => setNewSubtaskTitle((e.target as HTMLInputElement).value)}
+                onKeyDown={handleSubtaskKeyDown}
+              />
+            ) : (
+              <button type="button" className="tempo-subtask-locked-btn" onClick={onRequestLicense}>
+                {t("subtaskLocked", locale)}
+              </button>
+            )}
           </div>
         </div>
 

@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
+import { Menu } from "obsidian";
 import type { JSX } from "preact";
-import type { NavCounts } from "../../core/selectors";
+import { getCycleTimeStatus, getProgress, type NavCounts } from "../../core/selectors";
 import type { Cycle, NavItemKey, Project, Task } from "../../core/types";
 import { t, type Locale } from "../../services/i18n";
 import {
@@ -26,6 +27,10 @@ interface SidebarProps {
   onOpenQuickAdd: () => void;
   onOpenNewProject: () => void;
   onOpenNewCycle: () => void;
+  onEditProject?: (projectId: string) => void;
+  onEditCycle?: (cycleId: string) => void;
+  /** Local calendar day, owned by the App so the badges roll over at midnight. */
+  today: string;
   onMoveTaskToBucket?: (taskId: string, bucket: string) => void;
   onMoveTaskToProject?: (taskId: string, projectId: string) => void;
 }
@@ -41,6 +46,9 @@ export function Sidebar({
   onOpenQuickAdd,
   onOpenNewProject,
   onOpenNewCycle,
+  onEditProject,
+  onEditCycle,
+  today,
   onMoveTaskToBucket,
   onMoveTaskToProject,
 }: SidebarProps): JSX.Element {
@@ -52,6 +60,15 @@ export function Sidebar({
     }
   };
   const allTasks = Object.values(tasks);
+
+  // Right-click on a project or cycle offers the edit dialog, which also holds delete.
+  const showEditMenu = (e: MouseEvent, onEdit?: () => void) => {
+    if (!onEdit) return;
+    e.preventDefault();
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle(t("editBtn", locale)).setIcon("pencil").onClick(onEdit));
+    menu.showAtMouseEvent(e);
+  };
 
   const navItems: Array<{ key: NavItemKey; title: string; icon: JSX.Element; count: number }> = [
     { key: "inbox", title: t("inbox", locale), icon: <InboxIcon size={14} />, count: counts.inbox },
@@ -112,9 +129,9 @@ export function Sidebar({
         </button>
       </div>
       {Object.values(projects).map((proj) => {
-        const projTasks = allTasks.filter((t) => t.projectId === proj.id && !t.parentTaskId);
-        const doneTasks = projTasks.filter((t) => t.status === "done").length;
-        const pct = projTasks.length > 0 ? Math.round((doneTasks / projTasks.length) * 100) : 0;
+        const { pct } = getProgress(
+          allTasks.filter((t) => t.projectId === proj.id && !t.parentTaskId),
+        );
         const projKey = `proj:${proj.id}`;
 
         return (
@@ -124,6 +141,7 @@ export function Sidebar({
               dragOverKey === projKey ? "is-drag-over" : ""
             }`}
             onClick={() => onSelectNav(projKey)}
+            onContextMenu={(e) => showEditMenu(e, onEditProject && (() => onEditProject(proj.id)))}
             onKeyDown={(e) => activateOnKey(e, () => onSelectNav(projKey))}
             onDragOver={(e) => {
               e.preventDefault();
@@ -169,11 +187,14 @@ export function Sidebar({
           <PlusIcon size={12} />
         </button>
       </div>
-      {Object.values(cycles).map((cycle) => (
+      {Object.values(cycles)
+        .sort((a, b) => a.startDate.localeCompare(b.startDate))
+        .map((cycle) => (
         <div
           key={cycle.id}
           className={`tempo-nav-item ${activeNav === `cycle:${cycle.id}` ? "is-active" : ""} ${dragOverKey === `cycle:${cycle.id}` ? "is-drag-over" : ""}`}
           onClick={() => onSelectNav(`cycle:${cycle.id}`)}
+          onContextMenu={(e) => showEditMenu(e, onEditCycle && (() => onEditCycle(cycle.id)))}
           onKeyDown={(e) => activateOnKey(e, () => onSelectNav(`cycle:${cycle.id}`))}
           onDragOver={(e) => {
             e.preventDefault();
@@ -194,9 +215,9 @@ export function Sidebar({
             <CycleIcon size={14} />
           </span>
           <span className="tempo-nav-title">{cycle.title}</span>
-          {cycle.status === "current" && (
+          {getCycleTimeStatus(cycle, today) === "current" && (
             <span className="tempo-nav-badge" style={{ fontSize: 9, fontWeight: 600 }}>
-              NOW
+              {t("cycleNowBadge", locale)}
             </span>
           )}
         </div>

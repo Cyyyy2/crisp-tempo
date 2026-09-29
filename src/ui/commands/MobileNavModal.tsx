@@ -1,5 +1,6 @@
 import type { JSX } from "preact";
 import { useLayoutEffect, useRef } from "preact/hooks";
+import { getCycleTimeStatus, getProgress } from "../../core/selectors";
 import type { Cycle, Project, Task } from "../../core/types";
 import { t, type Locale } from "../../services/i18n";
 import { CloseIcon, CycleIcon, FolderIcon, PlusIcon } from "../icons/Icons";
@@ -72,7 +73,7 @@ export function MobileNavModal({
   if (!isOpen) return null;
 
   const projectList = Object.values(projects);
-  const cycleList = Object.values(cycles);
+  const cycleList = Object.values(cycles).sort((a, b) => a.startDate.localeCompare(b.startDate));
   const allTasks = Object.values(tasks);
 
   return (
@@ -204,12 +205,8 @@ export function MobileNavModal({
                   const projTasks = allTasks.filter(
                     (t) => t.projectId === proj.id && !t.parentTaskId
                   );
-                  const doneTasks = projTasks.filter((t) => t.status === "done").length;
-                  const activeCount = projTasks.length - doneTasks;
-                  const pct =
-                    projTasks.length > 0
-                      ? Math.round((doneTasks / projTasks.length) * 100)
-                      : 0;
+                  const { done: doneTasks, total, pct } = getProgress(projTasks);
+                  const activeCount = total - doneTasks;
                   const isActive = activeNav === `proj:${proj.id}`;
 
                   return (
@@ -356,7 +353,7 @@ export function MobileNavModal({
                           {cycle.startDate} ~ {cycle.endDate}
                         </span>
                       </div>
-                      {cycle.status === "current" && (
+                      {getCycleTimeStatus(cycle) === "current" && (
                         <span
                           className="tempo-nav-badge"
                           style={{
@@ -365,7 +362,7 @@ export function MobileNavModal({
                             color: "var(--tempo-ui-accent)",
                           }}
                         >
-                          NOW
+                          {t("cycleNowBadge", locale)}
                         </span>
                       )}
                     </button>

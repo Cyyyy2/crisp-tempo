@@ -17,6 +17,11 @@ export interface CycleModalProps {
   locale: Locale;
   nextCycleNumber?: number;
   currentCycleEnd?: string;
+  /** Present when editing an existing cycle; the modal then saves instead of creating. */
+  initial?: { title: string; startDate: string; endDate: string; status: string };
+  /** Tasks that will be unlinked if the cycle is deleted. */
+  linkedTaskCount?: number;
+  onDeleteCycle?: () => void;
   onClose: () => void;
   onCreateCycle: (cycle: {
     title: string;
@@ -31,15 +36,23 @@ export function CycleModal({
   locale,
   nextCycleNumber = 2,
   currentCycleEnd,
+  initial,
+  linkedTaskCount = 0,
+  onDeleteCycle,
   onClose,
   onCreateCycle,
 }: CycleModalProps): JSX.Element | null {
   const today = getTodayString();
-  const defaultStart = currentCycleEnd && currentCycleEnd >= today ? shiftDate(currentCycleEnd, 1) : today;
-  const defaultEnd = shiftDate(defaultStart, 6);
-  const defaultStatus: "current" | "upcoming" = currentCycleEnd ? "upcoming" : "current";
+  const isEdit = !!initial;
+  const defaultStart = initial?.startDate ??
+    (currentCycleEnd && currentCycleEnd >= today ? shiftDate(currentCycleEnd, 1) : today);
+  const defaultEnd = initial?.endDate ?? shiftDate(defaultStart, 6);
+  const defaultStatus: "current" | "upcoming" = defaultStart > today ? "upcoming" : "current";
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const [title, setTitle] = useState(() => tf("cycleDefaultTitle", locale, { n: nextCycleNumber }));
+  const [title, setTitle] = useState(
+    () => initial?.title ?? tf("cycleDefaultTitle", locale, { n: nextCycleNumber }),
+  );
   const [startDate, setStartDate] = useState(defaultStart);
   const [endDate, setEndDate] = useState(defaultEnd);
   const [status, setStatus] = useState<"current" | "upcoming">(defaultStatus);
@@ -115,7 +128,7 @@ export function CycleModal({
         <div className="tempo-window-header">
           <div className="tempo-window-title-left">
             <CycleIcon size={16} />
-            <span className="tempo-window-title">{t("newCycle", locale)}</span>
+            <span className="tempo-window-title">{t(isEdit ? "editCycle" : "newCycle", locale)}</span>
           </div>
           <button
             type="button"
@@ -155,6 +168,8 @@ export function CycleModal({
                 onChange={(d) => {
                   setStartDate(d || "");
                   setDateError(null);
+                  // Keep the status consistent with the dates; it can still be overridden.
+                  if (d) setStatus(d > today ? "upcoming" : "current");
                 }}
               />
             </div>
@@ -203,7 +218,26 @@ export function CycleModal({
 
         {/* Footer */}
         <div className="tempo-window-footer">
-          <div className="tempo-window-hint">{t("shortcutHint", locale)}</div>
+          {isEdit && onDeleteCycle ? (
+            <button
+              type="button"
+              className="tempo-action-btn tempo-btn-danger-text"
+              onClick={() => {
+                if (!confirmDelete) {
+                  setConfirmDelete(true);
+                  return;
+                }
+                onDeleteCycle();
+                onClose();
+              }}
+            >
+              {confirmDelete
+                ? tf("confirmDeleteCycle", locale, { n: linkedTaskCount })
+                : t("deleteCycle", locale)}
+            </button>
+          ) : (
+            <div className="tempo-window-hint">{t("shortcutHint", locale)}</div>
+          )}
           <div className="tempo-window-actions">
             <button
               type="button"
@@ -218,7 +252,7 @@ export function CycleModal({
               onClick={handleSubmit}
               disabled={!title.trim()}
             >
-              {t("createCycle", locale)}
+              {t(isEdit ? "saveBtn" : "createCycle", locale)}
             </button>
           </div>
         </div>

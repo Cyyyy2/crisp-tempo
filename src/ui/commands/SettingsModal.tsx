@@ -18,6 +18,8 @@ export interface SettingsModalProps {
   licenseKey?: string;
   licenseStatus?: "valid" | "invalid" | "unlicensed";
   licensePayload?: LicensePayload;
+  /** Opened because a locked action was attempted: explain it and focus the license field. */
+  licenseRequired?: boolean;
   onClose: () => void;
   onChangeLocale: (locale: Locale) => void;
   onChangeDefaultDest: (dest: "inbox" | "today") => void;
@@ -40,6 +42,7 @@ export function SettingsModal({
   licenseKey,
   licenseStatus,
   licensePayload,
+  licenseRequired = false,
   onClose,
   onChangeLocale,
   onChangeDefaultDest,
@@ -65,7 +68,15 @@ export function SettingsModal({
     const card = cardRef.current;
     if (!card) return;
     const removeKeyboard = installDialogFocus(card, onClose);
-    card.querySelector<HTMLButtonElement>(".tempo-window-close-btn")?.focus();
+    const licenseInput = licenseRequired
+      ? card.querySelector<HTMLInputElement>(".tempo-license-input")
+      : null;
+    if (licenseInput) {
+      licenseInput.scrollIntoView({ block: "center" });
+      licenseInput.focus();
+    } else {
+      card.querySelector<HTMLButtonElement>(".tempo-window-close-btn")?.focus();
+    }
     return removeKeyboard;
   }, []);
 
@@ -108,11 +119,11 @@ export function SettingsModal({
     try {
       const res = await onActivateLicense(trimmed);
       if (res.valid && res.payload) {
-        const userName = res.payload.userName || "Crisp 用户";
+        const userName = res.payload.userName || t("defaultUserName", locale);
         setActivationSuccess(tf("licenseSuccess", locale, { user: userName }));
         new Notice(tf("licenseSuccess", locale, { user: userName }));
       } else {
-        const reason = res.reason || "未知原因";
+        const reason = res.reason || t("unknownReason", locale);
         setActivationError(tf("licenseFailed", locale, { reason }));
         new Notice(tf("licenseFailed", locale, { reason }));
       }
@@ -223,6 +234,11 @@ export function SettingsModal({
           <div className="tempo-settings-section" style={{ marginTop: 20 }}>
             <div className="tempo-settings-section-title">{t("licenseSettings", locale)}</div>
 
+            {licenseRequired && !isValidLicense && (
+              <div className="tempo-settings-alert-error" role="alert" style={{ marginBottom: 10 }}>
+                {t("licenseRequiredHint", locale)}
+              </div>
+            )}
             <div className="tempo-settings-license-card">
               <div className="tempo-license-status-header">
                 <div className="tempo-license-status-badge-wrap">
@@ -246,7 +262,7 @@ export function SettingsModal({
                 <div className="tempo-license-details">
                   <div className="tempo-license-detail-row">
                     <span className="tempo-license-detail-label">{t("licenseUser", locale)}</span>
-                    <span className="tempo-license-detail-val">{licensePayload.userName || "Crisp 用户"}</span>
+                    <span className="tempo-license-detail-val">{licensePayload.userName || t("defaultUserName", locale)}</span>
                   </div>
                   <div className="tempo-license-detail-row">
                     <span className="tempo-license-detail-label">{t("licenseExpires", locale)}</span>
@@ -431,14 +447,14 @@ export function SettingsModal({
               <div className="tempo-about-version">
                 <span>{tf("aboutVersion", locale, { v: version })}</span>
                 <span style={{ margin: "0 6px" }}>·</span>
-                <span>作者：</span>
+                <span>{t("authorLabel", locale)}</span>
                 <a
                   href="https://xhslink.cn/m/3MwtKu4822b"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="tempo-about-author-link"
                 >
-                  小红书 letschips
+                  {t("authorLink", locale)}
                 </a>
               </div>
             </div>

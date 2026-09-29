@@ -1,4 +1,5 @@
 import type { JSX } from "preact";
+import { getProgress } from "../../core/selectors";
 import type { Project, Task } from "../../core/types";
 import { t, type Locale } from "../../services/i18n";
 import { PlusIcon } from "../icons/Icons";
@@ -18,6 +19,8 @@ interface GenericListViewProps {
   onToggleStatus: (taskId: string) => void;
   onOpenQuickAdd: () => void;
   onBackToToday?: () => void;
+  /** Opens the edit dialog of the project or cycle on screen. */
+  onEdit?: () => void;
 }
 
 export function GenericListView({
@@ -33,10 +36,10 @@ export function GenericListView({
   onToggleStatus,
   onOpenQuickAdd,
   onBackToToday,
+  onEdit,
 }: GenericListViewProps): JSX.Element {
 
-  const doneCount = tasks.filter((t) => t.status === "done").length;
-  const progressPct = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
+  const { done: doneCount, total: progressTotal, pct: progressPct } = getProgress(tasks);
 
   return (
     <div className="tempo-main-card">
@@ -79,6 +82,17 @@ export function GenericListView({
             {tasks.length} {t("tasksUnit", locale)}
           </span>
         </div>
+        <div className="tempo-card-header-actions">
+        {onEdit && (
+          <button
+            type="button"
+            className="tempo-card-header-btn is-secondary"
+            onClick={onEdit}
+            title={t("editBtn", locale)}
+          >
+            <span>{t("editBtn", locale)}</span>
+          </button>
+        )}
         <button
           type="button"
           className="tempo-card-header-btn"
@@ -88,13 +102,14 @@ export function GenericListView({
           <PlusIcon size={12} />
           <span>{t("newTask", locale)}</span>
         </button>
+        </div>
       </div>
 
       {project && (
         <div style={{ padding: "10px 18px 6px", borderBottom: "1px solid var(--background-modifier-border)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              {doneCount} / {tasks.length} {t("completed", locale)}
+              {doneCount} / {progressTotal} {t("completed", locale)}
             </span>
             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-normal)" }}>
               {progressPct}%
