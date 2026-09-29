@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.DS_Store
+*.tsbuildinfo
+*.log
+
+# Sensitive runtime & user data (NEVER commit to git or releases)
+data.json
+data.json.bak*
+backups/
+
+# Local screenshot evidence and scratch files
+tempo-*.png
+*.preview.png
+scripts/take-screenshots.mjs

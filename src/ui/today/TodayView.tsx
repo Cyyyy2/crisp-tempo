@@ -1,0 +1,163 @@
+import type { JSX } from "preact";
+import type { Project, Task } from "../../core/types";
+import { formatHeaderDate } from "../../services/date-service";
+import { t, type Locale } from "../../services/i18n";
+import { PlusIcon, TodayIcon } from "../icons/Icons";
+import { TaskRow } from "../tasks/TaskRow";
+
+interface TodayViewProps {
+  today?: string;
+  tasks: Task[];
+  locale: Locale;
+  /** Subtasks grouped by parent, built once by the caller instead of scanned per row. */
+  childrenMap: Map<string, Task[]>;
+  projects: Record<string, Project>;
+  selectedTaskId: string | null;
+  onSelectTask: (taskId: string) => void;
+  onToggleStatus: (taskId: string) => void;
+  onOpenQuickAdd: () => void;
+}
+
+export function TodayView({
+  today,
+  tasks,
+  locale,
+  childrenMap,
+  projects,
+  selectedTaskId,
+  onSelectTask,
+  onToggleStatus,
+  onOpenQuickAdd,
+}: TodayViewProps): JSX.Element {
+  const inProgressTasks = tasks.filter((t) => t.status === "in_progress");
+  const todoTasks = tasks.filter((t) => t.status === "todo");
+  const waitingTasks = tasks.filter((t) => t.status === "waiting");
+  const doneTasks = tasks.filter((t) => t.status === "done");
+
+  return (
+    <div className="tempo-main-card">
+      {/* Header */}
+      <div className="tempo-card-header">
+        <div className="tempo-card-header-left">
+          <span className="tempo-card-title">{t("today", locale)}</span>
+          <span className="tempo-card-subtitle">
+            {formatHeaderDate(today ? new Date(today + "T00:00:00") : new Date(), locale)}
+          </span>
+          <span className="tempo-nav-badge">
+            {tasks.filter((t) => t.status !== "done" && t.status !== "canceled").length} {t("tasksUnit", locale)}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="tempo-card-header-btn"
+          onClick={onOpenQuickAdd}
+          title={t("newTask", locale)}
+        >
+          <PlusIcon size={12} />
+          <span>{t("newTask", locale)}</span>
+        </button>
+      </div>
+
+      {/* Task List */}
+      <div className="tempo-task-scroll">
+        {tasks.length === 0 ? (
+          <div className="tempo-empty-state">
+            <TodayIcon size={36} className="tempo-empty-icon" />
+            <p style={{ margin: 0, fontWeight: 500 }}>{t("noTasksToday", locale)}</p>
+            <p style={{ margin: 0, fontSize: 12 }}>{t("noTasksDesc", locale)}</p>
+          </div>
+        ) : (
+          <>
+            {/* In Progress Group */}
+            {inProgressTasks.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div className="tempo-group-header">
+                  <span>{t("inProgress", locale)}</span>
+                  <span className="tempo-group-count">{inProgressTasks.length}</span>
+                </div>
+                {inProgressTasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    locale={locale}
+                    project={task.projectId ? projects[task.projectId] : undefined}
+                    subtasks={childrenMap.get(task.id) ?? []}
+                    isSelected={selectedTaskId === task.id}
+                    onSelect={() => onSelectTask(task.id)}
+                    onToggleStatus={() => onToggleStatus(task.id)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Todo Group */}
+            {todoTasks.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div className="tempo-group-header">
+                  <span>{t("tasks", locale)}</span>
+                  <span className="tempo-group-count">{todoTasks.length}</span>
+                </div>
+                {todoTasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    locale={locale}
+                    project={task.projectId ? projects[task.projectId] : undefined}
+                    subtasks={childrenMap.get(task.id) ?? []}
+                    isSelected={selectedTaskId === task.id}
+                    onSelect={() => onSelectTask(task.id)}
+                    onToggleStatus={() => onToggleStatus(task.id)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Waiting Group */}
+            {waitingTasks.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div className="tempo-group-header">
+                  <span>{t("waiting", locale)}</span>
+                  <span className="tempo-group-count">{waitingTasks.length}</span>
+                </div>
+                {waitingTasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    locale={locale}
+                    project={task.projectId ? projects[task.projectId] : undefined}
+                    subtasks={childrenMap.get(task.id) ?? []}
+                    isSelected={selectedTaskId === task.id}
+                    onSelect={() => onSelectTask(task.id)}
+                    onToggleStatus={() => onToggleStatus(task.id)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Completed Group */}
+            {doneTasks.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div className="tempo-group-header">
+                  <span>{t("completedToday", locale)}</span>
+                  <span className="tempo-group-count">{doneTasks.length}</span>
+                </div>
+                {doneTasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    locale={locale}
+                    project={task.projectId ? projects[task.projectId] : undefined}
+                    subtasks={childrenMap.get(task.id) ?? []}
+                    isSelected={selectedTaskId === task.id}
+                    onSelect={() => onSelectTask(task.id)}
+                    onToggleStatus={() => onToggleStatus(task.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
