@@ -18,9 +18,6 @@ interface InspectorProps {
   onAddSubtask: (title: string, parentTaskId?: string) => void;
   onToggleSubtask: (subtaskId: string) => void;
   onDeleteSubtask: (subtaskId: string) => void;
-  /** Creating subtasks needs a license; editing existing ones does not. */
-  canAddSubtask?: boolean;
-  onRequestLicense?: () => void;
 }
 
 export function Inspector({
@@ -35,8 +32,6 @@ export function Inspector({
   onAddSubtask,
   onToggleSubtask,
   onDeleteSubtask,
-  canAddSubtask = true,
-  onRequestLicense,
 }: InspectorProps): JSX.Element {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [titleDraft, setTitleDraft] = useState(task.title);
@@ -305,20 +300,14 @@ export function Inspector({
 
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
             <PlusIcon size={12} style={{ color: "var(--text-faint)" }} />
-            {canAddSubtask ? (
-              <input
-                type="text"
-                className="tempo-add-subtask-input"
-                placeholder={t("addSubtaskPlaceholder", locale)}
-                value={newSubtaskTitle}
-                onInput={(e) => setNewSubtaskTitle((e.target as HTMLInputElement).value)}
-                onKeyDown={handleSubtaskKeyDown}
-              />
-            ) : (
-              <button type="button" className="tempo-subtask-locked-btn" onClick={onRequestLicense}>
-                {t("subtaskLocked", locale)}
-              </button>
-            )}
+            <input
+              type="text"
+              className="tempo-add-subtask-input"
+              placeholder={t("addSubtaskPlaceholder", locale)}
+              value={newSubtaskTitle}
+              onInput={(e) => setNewSubtaskTitle((e.target as HTMLInputElement).value)}
+              onKeyDown={handleSubtaskKeyDown}
+            />
           </div>
         </div>
 

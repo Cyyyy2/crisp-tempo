@@ -42,11 +42,6 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
   const store = TempoStore.get(plugin);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Crisp Tempo is a paid plugin: creating tasks, subtasks and projects needs a valid
-  // license. Everything that touches existing data (view, edit, complete, delete, export)
-  // stays available, so an expired license never holds the user's tasks hostage.
-  const hasLicense = () => store.data?.licenseStatus === "valid";
-
   // Subscribe to central store. A single snapshot shape keeps the initial state and the
   // subscription callback from drifting apart.
   const snapshot = () => ({
@@ -75,8 +70,7 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
   // Listen for Quick Add command
   useEffect(() => {
     const unsubQuickAdd = store.onQuickAdd(() => {
-      if (hasLicense()) setIsTaskCreateOpen(true);
-      else promptForLicense();
+      setIsTaskCreateOpen(true);
     }, leaf);
     return unsubQuickAdd;
   }, [store, leaf]);
@@ -92,23 +86,14 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [confirmSalvage, setConfirmSalvage] = useState(false);
-  const [licensePrompt, setLicensePrompt] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingCycleId, setEditingCycleId] = useState<string | null>(null);
 
-  /** Explains why creation is locked and opens the activation form. */
-  function promptForLicense(): void {
-    new Notice(t("licenseRequiredNotice", store.data?.locale ?? "zh"));
-    setLicensePrompt(true);
-    setIsSettingsOpen(true);
-  }
   const openQuickAdd = () => {
-    if (hasLicense()) setIsTaskCreateOpen(true);
-    else promptForLicense();
+    setIsTaskCreateOpen(true);
   };
   const openNewProject = () => {
-    if (hasLicense()) setIsProjectModalOpen(true);
-    else promptForLicense();
+    setIsProjectModalOpen(true);
   };
   const [isRecovering, setIsRecovering] = useState(false);
 
@@ -411,10 +396,6 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
     projectId?: string;
     cycleId?: string;
   }) => {
-    if (!hasLicense()) {
-      promptForLicense();
-      return;
-    }
     const newId = `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const newTask: Task = {
       id: newId,
@@ -448,10 +429,6 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
   const handleAddSubtask = (title: string, explicitParentId?: string) => {
     const parentId = explicitParentId || selectedTaskId;
     if (!parentId) return;
-    if (!hasLicense()) {
-      promptForLicense();
-      return;
-    }
 
     const subId = `task-sub-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const newSubtask: Task = {
@@ -482,10 +459,6 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
     color: string;
     description?: string;
   }) => {
-    if (!hasLicense()) {
-      promptForLicense();
-      return;
-    }
     const newProjId = `proj-${Date.now()}`;
     const newProj: Project = {
       id: newProjId,
@@ -816,11 +789,6 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
           cycles={db.cycles}
           onSelectNav={(nav) => setActiveNav(nav)}
           onOpenSettings={() => setIsSettingsOpen(true)}
-          isLicensed={storeState.data.licenseStatus === "valid"}
-          onOpenLicense={() => {
-            setLicensePrompt(true);
-            setIsSettingsOpen(true);
-          }}
           onUndo={handleUndo}
           onOpenQuickAdd={openQuickAdd}
           onOpenProjects={() => setIsMobileNavOpen(true)}
@@ -961,8 +929,6 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
               onAddSubtask={handleAddSubtask}
               onToggleSubtask={handleToggleStatus}
               onDeleteSubtask={handleDeleteTask}
-              canAddSubtask={storeState.data.licenseStatus === "valid"}
-              onRequestLicense={promptForLicense}
             />
           )}
         </div>
@@ -1038,10 +1004,8 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
             taskCount={taskList.length}
             projectCount={Object.keys(db.projects).length}
             cycleCount={Object.keys(db.cycles).length}
-            licenseRequired={licensePrompt}
             onClose={() => {
               setIsSettingsOpen(false);
-              setLicensePrompt(false);
             }}
             onChangeLocale={handleChangeLocale}
             onChangeDefaultDest={handleChangeDefaultDest}
@@ -1049,11 +1013,6 @@ export function App({ plugin, leaf }: AppProps): JSX.Element {
             onResetData={handleResetData}
             onExportData={(folder) => store.exportRawData(folder)}
             exportFolder={storeState.data?.exportFolder}
-            licenseKey={storeState.data?.licenseKey}
-            licenseStatus={storeState.data?.licenseStatus}
-            licensePayload={storeState.data?.licensePayload}
-            onActivateLicense={(key) => store.activateLicense(key)}
-            onClearLicense={() => store.clearLicense()}
           />
         )}
 

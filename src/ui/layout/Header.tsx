@@ -17,8 +17,6 @@ interface HeaderProps {
   onUndo: () => void;
   onOpenQuickAdd: () => void;
   onOpenProjects?: () => void;
-  isLicensed?: boolean;
-  onOpenLicense?: () => void;
   onMoveTaskToBucket?: (taskId: string, bucket: string) => void;
 }
 
@@ -34,8 +32,6 @@ export function Header({
   onUndo,
   onOpenQuickAdd,
   onOpenProjects,
-  isLicensed = true,
-  onOpenLicense,
   onMoveTaskToBucket,
 }: HeaderProps): JSX.Element {
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -115,16 +111,6 @@ export function Header({
 
         {/* Global Action Tools */}
         <div className="tempo-header-actions">
-          {!isLicensed && onOpenLicense && (
-            <button
-              type="button"
-              className="tempo-license-chip"
-              onClick={onOpenLicense}
-              title={t("licenseRequiredNotice", locale)}
-            >
-              {t("licenseChip", locale)}
-            </button>
-          )}
           {/* Settings Button */}
           <button
             type="button"

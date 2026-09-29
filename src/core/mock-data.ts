@@ -309,7 +309,7 @@ export function createInitialMockDatabase(): TodoDatabase {
       "task-wait-2": {
         id: "task-wait-2",
         title: "Waiting for Cloudflare Durable Object worker deployment",
-        description: "Need production token binding before deploying license state verification.",
+        description: "Need production token binding before deploying the scheduled job runner.",
         status: "waiting",
         triage: "processed",
         availability: "anytime",

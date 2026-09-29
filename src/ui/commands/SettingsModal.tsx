@@ -2,7 +2,6 @@ import type { JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Notice } from "obsidian";
 import { t, tf, type Locale } from "../../services/i18n";
-import type { LicensePayload, LicenseVerifyResult } from "../../services/license";
 import { installDialogFocus } from "../components/dialog-focus";
 import { CloseIcon, SettingsIcon, TempoLogoIcon } from "../icons/Icons";
 
@@ -15,19 +14,12 @@ export interface SettingsModalProps {
   projectCount: number;
   cycleCount: number;
   exportFolder?: string;
-  licenseKey?: string;
-  licenseStatus?: "valid" | "invalid" | "unlicensed";
-  licensePayload?: LicensePayload;
-  /** Opened because a locked action was attempted: explain it and focus the license field. */
-  licenseRequired?: boolean;
   onClose: () => void;
   onChangeLocale: (locale: Locale) => void;
   onChangeDefaultDest: (dest: "inbox" | "today") => void;
   onChangeExportFolder?: (folder: string) => void;
   onResetData: () => Promise<boolean>;
   onExportData: (customFolder?: string) => Promise<string>;
-  onActivateLicense?: (key: string) => Promise<LicenseVerifyResult>;
-  onClearLicense?: () => Promise<void>;
 }
 
 export function SettingsModal({
@@ -39,18 +31,12 @@ export function SettingsModal({
   projectCount,
   cycleCount,
   exportFolder,
-  licenseKey,
-  licenseStatus,
-  licensePayload,
-  licenseRequired = false,
   onClose,
   onChangeLocale,
   onChangeDefaultDest,
   onChangeExportFolder,
   onResetData,
   onExportData,
-  onActivateLicense,
-  onClearLicense,
 }: SettingsModalProps): JSX.Element | null {
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
@@ -58,25 +44,13 @@ export function SettingsModal({
   const [isResetting, setIsResetting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportFolderDraft, setExportFolderDraft] = useState(exportFolder || "");
-  const [licenseDraft, setLicenseDraft] = useState(licenseKey || "");
-  const [isActivating, setIsActivating] = useState(false);
-  const [activationError, setActivationError] = useState<string | null>(null);
-  const [activationSuccess, setActivationSuccess] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     const card = cardRef.current;
     if (!card) return;
     const removeKeyboard = installDialogFocus(card, onClose);
-    const licenseInput = licenseRequired
-      ? card.querySelector<HTMLInputElement>(".tempo-license-input")
-      : null;
-    if (licenseInput) {
-      licenseInput.scrollIntoView({ block: "center" });
-      licenseInput.focus();
-    } else {
-      card.querySelector<HTMLButtonElement>(".tempo-window-close-btn")?.focus();
-    }
+    card.querySelector<HTMLButtonElement>(".tempo-window-close-btn")?.focus();
     return removeKeyboard;
   }, []);
 
@@ -102,47 +76,6 @@ export function SettingsModal({
     } finally {
       setIsExporting(false);
     }
-  };
-
-  const isValidLicense = licenseStatus === "valid";
-
-  const handleActivate = async () => {
-    if (isActivating || !onActivateLicense) return;
-    const trimmed = licenseDraft.trim();
-    if (!trimmed) {
-      setActivationError(t("licenseEmpty", locale));
-      return;
-    }
-    setIsActivating(true);
-    setActivationError(null);
-    setActivationSuccess(null);
-    try {
-      const res = await onActivateLicense(trimmed);
-      if (res.valid && res.payload) {
-        const userName = res.payload.userName || t("defaultUserName", locale);
-        setActivationSuccess(tf("licenseSuccess", locale, { user: userName }));
-        new Notice(tf("licenseSuccess", locale, { user: userName }));
-      } else {
-        const reason = res.reason || t("unknownReason", locale);
-        setActivationError(tf("licenseFailed", locale, { reason }));
-        new Notice(tf("licenseFailed", locale, { reason }));
-      }
-    } catch (err: any) {
-      const reason = err?.message || String(err);
-      setActivationError(tf("licenseFailed", locale, { reason }));
-      new Notice(tf("licenseFailed", locale, { reason }));
-    } finally {
-      setIsActivating(false);
-    }
-  };
-
-  const handleClearLicense = async () => {
-    if (!onClearLicense) return;
-    await onClearLicense();
-    setLicenseDraft("");
-    setActivationSuccess(null);
-    setActivationError(null);
-    new Notice(t("licenseCleared", locale));
   };
 
   // The guard sits after every hook so the hook order cannot change between renders.
@@ -227,102 +160,6 @@ export function SettingsModal({
                   {t("today", locale)}
                 </button>
               </div>
-            </div>
-          </div>
-
-          {/* Section: Software License & Activation */}
-          <div className="tempo-settings-section" style={{ marginTop: 20 }}>
-            <div className="tempo-settings-section-title">{t("licenseSettings", locale)}</div>
-
-            {licenseRequired && !isValidLicense && (
-              <div className="tempo-settings-alert-error" role="alert" style={{ marginBottom: 10 }}>
-                {t("licenseRequiredHint", locale)}
-              </div>
-            )}
-            <div className="tempo-settings-license-card">
-              <div className="tempo-license-status-header">
-                <div className="tempo-license-status-badge-wrap">
-                  <span className={`tempo-license-dot ${isValidLicense ? "is-valid" : "is-unlicensed"}`} />
-                  <span className="tempo-license-status-text">
-                    {isValidLicense ? t("licenseActive", locale) : t("licenseUnlicensed", locale)}
-                  </span>
-                </div>
-                {isValidLicense && onClearLicense && (
-                  <button
-                    type="button"
-                    className="tempo-action-btn tempo-btn-danger-text"
-                    onClick={() => void handleClearLicense()}
-                  >
-                    {t("clearLicenseBtn", locale)}
-                  </button>
-                )}
-              </div>
-
-              {isValidLicense && licensePayload ? (
-                <div className="tempo-license-details">
-                  <div className="tempo-license-detail-row">
-                    <span className="tempo-license-detail-label">{t("licenseUser", locale)}</span>
-                    <span className="tempo-license-detail-val">{licensePayload.userName || t("defaultUserName", locale)}</span>
-                  </div>
-                  <div className="tempo-license-detail-row">
-                    <span className="tempo-license-detail-label">{t("licenseExpires", locale)}</span>
-                    <span className="tempo-license-detail-val">
-                      {licensePayload.expiresAt ? String(licensePayload.expiresAt).split("T")[0] : t("licenseNeverExpires", locale)}
-                    </span>
-                  </div>
-                  {licensePayload.maxDevices && (
-                    <div className="tempo-license-detail-row">
-                      <span className="tempo-license-detail-label">{t("licenseDevices", locale)}</span>
-                      <span className="tempo-license-detail-val">
-                        {tf("licenseDevicesLimit", locale, { n: licensePayload.maxDevices })}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="tempo-license-input-wrap">
-                  <div className="tempo-settings-item-desc" style={{ marginBottom: 10 }}>
-                    {t("licenseDesc", locale)}
-                  </div>
-                  <div className="tempo-license-form-row">
-                    <input
-                      type="password"
-                      className="tempo-window-input-title tempo-license-input"
-                      placeholder={t("licensePlaceholder", locale)}
-                      value={licenseDraft}
-                      onInput={(e) => {
-                        setLicenseDraft((e.target as HTMLInputElement).value);
-                        setActivationError(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void handleActivate();
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="tempo-btn-primary tempo-license-btn"
-                      onClick={() => void handleActivate()}
-                      disabled={isActivating || !licenseDraft.trim()}
-                    >
-                      {isActivating ? t("activatingBtn", locale) : t("activateBtn", locale)}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {activationError && (
-                <div className="tempo-settings-alert-error" role="alert" style={{ marginTop: 8 }}>
-                  ⚠ {activationError}
-                </div>
-              )}
-              {activationSuccess && (
-                <div className="tempo-settings-alert-success" role="status" style={{ marginTop: 8 }}>
-                  ✓ {activationSuccess}
-                </div>
-              )}
             </div>
           </div>
 

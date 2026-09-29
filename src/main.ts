@@ -75,8 +75,6 @@ export default class CrispTempoPlugin extends Plugin {
 
 class CrispTempoSettingTab extends PluginSettingTab {
   plugin: CrispTempoPlugin;
-  private licenseDraft = "";
-  private isCheckingLicense = false;
 
   constructor(app: App, plugin: CrispTempoPlugin) {
     super(app, plugin);
@@ -89,8 +87,8 @@ class CrispTempoSettingTab extends PluginSettingTab {
 
     const store = TempoStore.get(this.plugin);
     // The store is normally loaded by the Tempo view. Opening these settings before the view
-    // left it empty, so language, destination and even a successful license activation were
-    // silently discarded. Load it first and redraw once it is ready.
+    // left it empty, so language and destination preferences were silently discarded.
+    // Load it first and redraw once it is ready.
     if (store.status !== "ready" || !store.data) {
       if (store.status !== "error") {
         void store.load().then(
@@ -130,75 +128,7 @@ class CrispTempoSettingTab extends PluginSettingTab {
           });
       });
 
-    // 1. Software License & Activation
-    containerEl.createEl("h3", { text: t("licenseSettings", locale) });
-
-    const isValid = data?.licenseStatus === "valid";
-    const statusSetting = new Setting(containerEl).setName(t("licenseStatus", locale));
-
-    if (isValid && data?.licensePayload) {
-      const user = data.licensePayload.userName || t("defaultUserName", locale);
-      const expiry = data.licensePayload.expiresAt
-        ? ` · ${t("licenseExpires", locale)}: ${String(data.licensePayload.expiresAt).split("T")[0]}`
-        : ` · ${t("licenseNeverExpires", locale)}`;
-      statusSetting.setDesc(`✅ ${t("licenseActive", locale)}（${t("licenseUser", locale)}: ${user}${expiry}）`);
-      statusSetting.addButton((btn) => {
-        btn
-          .setButtonText(t("clearLicenseBtn", locale))
-          .setWarning()
-          .onClick(async () => {
-            await store.clearLicense();
-            this.licenseDraft = "";
-            new Notice(t("licenseCleared", locale));
-            this.display();
-          });
-      });
-    } else {
-      statusSetting.setDesc(`❌ ${t("licenseUnlicensed", locale)}（${t("licenseDesc", locale)}）`);
-    }
-
-    new Setting(containerEl)
-      .setName(t("licenseKey", locale))
-      .setDesc(t("licenseDesc", locale))
-      .addText((text) => {
-        text.inputEl.type = "password";
-        text
-          .setPlaceholder(t("licensePlaceholder", locale))
-          .setValue(this.licenseDraft || data?.licenseKey || "")
-          .onChange((val) => {
-            this.licenseDraft = val.trim();
-          });
-      })
-      .addButton((btn) => {
-        btn
-          .setButtonText(this.isCheckingLicense ? t("activatingBtn", locale) : t("activateBtn", locale))
-          .setCta()
-          .setDisabled(this.isCheckingLicense)
-          .onClick(async () => {
-            const codeToVerify = this.licenseDraft || data?.licenseKey;
-            if (!codeToVerify) {
-              new Notice(t("licenseEmpty", locale));
-              return;
-            }
-            this.isCheckingLicense = true;
-            this.display();
-            try {
-              const res = await store.activateLicense(codeToVerify);
-              if (res.valid && res.payload) {
-                new Notice(tf("licenseSuccess", locale, { user: res.payload.userName || t("defaultUserName", locale) }));
-              } else {
-                new Notice(tf("licenseFailed", locale, { reason: res.reason || t("unknownReason", locale) }));
-              }
-            } catch (err: any) {
-              new Notice(tf("licenseFailed", locale, { reason: err?.message || String(err) }));
-            } finally {
-              this.isCheckingLicense = false;
-              this.display();
-            }
-          });
-      });
-
-    // 2. Preferences
+    // 1. Preferences
     containerEl.createEl("h3", { text: t("generalSettings", locale) });
 
     new Setting(containerEl)
